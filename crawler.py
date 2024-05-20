@@ -7,9 +7,10 @@ from rich.table import Table
 from rich.console import Console
 import json
 import nltk
-from nltk.tokenize import word_tokenize
+from nltk.tokenize import wordpunct_tokenize, WhitespaceTokenizer
 from nltk.corpus import stopwords
 from datetime import datetime, timedelta
+import re
 
 console = Console()
 
@@ -24,29 +25,44 @@ def print_urls(urls):
     return table
 
 
-# def tokenize(content):
-
-
 def tokenize(content):
-    content_lower = content.lower()
-    all_tokens = word_tokenize(content_lower)
-    rm_stopwords = {}
-    for token in all_tokens:
-        if token not in stopwords.words():
-            if token in rm_stopwords:
-                rm_stopwords[token] = rm_stopwords[token] + 1
-            else:
-                rm_stopwords[token] = 1
-    return rm_stopwords
+    # Convert content to lowercase
+    content = content.lower()
+    # Replace dashes found in compound words with spaces
+    # content = re.sub(pattern=r"(?<=[a-z])-(?=[a-z])", repl=" ", string=content)
+    # content = re.sub(pattern=r"(?<=[a-z])'(?=[a-z])", repl="", string=content)
+    # [^\p{L} ] regexp for anything which isn't a letter (includes accented
+    # chars like in André)
+    all_tokens = wordpunct_tokenize(content)
+
+    index = {}
+    # punctuation_marks = {",", ".", "'", "-", ":", ";", "(", ")", "”", "“"}
+    # all_stopwords = set(stopwords.words("english")).union(punctuation_marks)
+
+    all_stopwords = set(stopwords.words("english"))
+    for position, token in enumerate(all_tokens):
+        # Discard the token if it is a stop word
+        if token in all_stopwords:
+            continue
+        # Check if an entry for this token already exists
+        if token in index:
+            # Increment index entry for this token
+            index[token].append(position)
+        else:
+            # Create a new index entry for this token
+            index[token] = [position]
+    return index
 
 
 def update_index(index, tokens, url):
     print(f"Updating index with page contents.")
-    for key, value in tokens.items():
-        if key in index:
-            index[key][url] = value
+    output_index = index
+    for token, token_entries in tokens.items():
+        if token in output_index:
+            index[token][url] = token_entries
         else:
-            index[key] = {url: value}
+            index[token] = {url: token_entries}
+    return output_index
 
 
 def crawl():
@@ -70,13 +86,12 @@ def crawl():
         content = ""
         for e in elements:
             content += e.get_text().strip() + "\n"
-        # print(content)
 
         tokens = tokenize(content)
 
         data[current_url]["visited"] = True
         data[current_url]["content"] = tokens
-        update_index(index, tokens, current_url)
+        index = update_index(index, tokens, current_url)
 
         # Find all link tags
         links = soup.select("a[href]")
