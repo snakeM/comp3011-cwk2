@@ -2,15 +2,14 @@ import requests
 from bs4 import BeautifulSoup
 import time
 from rich import print
-from rich.spinner import Spinner
 from rich.table import Table
 from rich.console import Console
 import json
 import nltk
-from nltk.tokenize import wordpunct_tokenize, WhitespaceTokenizer
+from nltk.tokenize import wordpunct_tokenize
 from nltk.corpus import stopwords
 from datetime import datetime, timedelta
-import re
+
 
 console = Console()
 
@@ -69,10 +68,12 @@ def crawl():
     nltk.download("stopwords")
     nltk.download("punkt")
     urls = [ROOT_URL]
-    pages = {ROOT_URL: {"visited": False, "content": ""}}
+    pages = {ROOT_URL: {"visited": False, "content": "", "incoming": []}}
+    pages_crawled = 0
     index = {}
     next_request_time = datetime.now()
     while len(urls) != 0:
+        pages_crawled += 1
         # Remove this URL from the list of unvisited URLs
         current_url = urls.pop()
         console.rule(f"Crawling: {current_url}")
@@ -98,6 +99,20 @@ def crawl():
         new_urls = []
         outgoing_urls = set({})
 
+        # for link in links:
+        #     url = link["href"]
+        #     # Basic check for any external links
+        #     if "http" in url:
+        #         continue
+        #     # Construct full url
+        #     full_url = ROOT_URL + url
+        #     outgoing_urls.add(full_url)
+        # # Get list of URLs as a set
+        # all_urls = set(urls)
+        # all_urls.add(outgoing_urls)
+        # # Find urls which have just been added
+        # diff_urls = new_urls - all_urls
+
         for l in links:
             url = l["href"]
             # Basic check for any external links
@@ -113,8 +128,8 @@ def crawl():
             else:
                 existing_incoming = pages[full_url]["incoming"]
                 new_incoming = set(existing_incoming)
-                existing_incoming.add(current_url)
-                print(f"Updating incoming links for {full_url}")
+                new_incoming.add(current_url)
+                # print(f"Updating incoming links for {full_url}")
                 pages[full_url]["incoming"] = list(new_incoming)
         pages[current_url]["outgoing"] = list(outgoing_urls)
         # Log a message if new links were found on a page
@@ -126,6 +141,7 @@ def crawl():
             print("---")
         # Log the number of pages still left to scrape
         print(f"[bold]No. URLs remaining: {len(urls)}.[/bold]")
+        print(f"[bold]No. pages indexed: {pages_crawled}.[/bold]")
 
         # Write the inverse index to local storage
         with open("inverse_index.json", "w") as fp:
@@ -137,10 +153,9 @@ def crawl():
 
         # Find the time remaining before another request can be made
         sleep_time = (abs(datetime.now() - next_request_time)).total_seconds()
+
         with console.status(
-            f"[italic]Observing politeness window. Waiting for {sleep_time:.2f} seconds[/italic]...",
+            f"[italic]Observing politeness window before next request is made...",
             spinner="material",
         ) as status:
-            status.start()
             time.sleep(sleep_time)
-            status.stop()

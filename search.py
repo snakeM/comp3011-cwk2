@@ -1,6 +1,5 @@
 import typer
-import requests
-from crawler import crawl
+from crawler import crawl, tokenize
 from utils import load_json
 from rich import print
 from rich.table import Table
@@ -59,7 +58,7 @@ def page_rank(pages):
                 converged = False
                 break
 
-    print(f"Ranking algorithm converged after {iteration} iterations.")
+    print(f"Page ranks converged after {iteration} iterations.")
 
     # Normalise page ranks so they are between 0 and 1
     sum_ranks = 0
@@ -67,6 +66,60 @@ def page_rank(pages):
         sum_ranks += rank
     for key in ranks:
         ranks[key] = ranks[key] / sum_ranks
+
+    return ranks
+
+
+def process_query(query_tokens, i_index, pages, page_ranks, output_pages):
+    index_entries = {}
+    priority_queue = {}
+    uniqueness = {}
+    for term in query_tokens.keys():
+        if term not in i_index:
+            print("No results found")
+            return {}
+        index_entries[term] = i_index[term]
+
+    for term, links in index_entries.items():
+        # The number of articles that this term appears in
+        term_frequency = len(links)
+        page_number = len(pages)
+        uniqueness[term] = term_frequency / page_number
+        # print(f"Uniqueness of term '{term}': {uniqueness[term]}")
+
+    for page in pages:
+        page_score = 0
+        page_rank = page_ranks[page]
+        page_completeness = 0
+        for term, links in index_entries.items():
+            # If the current page is featured in the index entry for the current term
+            if page in links:
+                page_completeness += 1
+                term_occurrences = links[page]
+                num_occurrences = len(term_occurrences)
+                # print(f"{page} features term: {term} {num_occurrences} times.")
+                page_word_count = pages[page]["tokens"]
+                page_score += (num_occurrences / page_word_count) * uniqueness[term]
+        # Heavily weight the score based on whether all terms which were
+        # searched for are present
+        page_score = page_score * page_rank * (page_completeness**2)
+        if page_score > 0 and page_completeness == len(query_tokens):
+            priority_queue[page] = page_score
+
+    total_result_num = len(priority_queue)
+    print(f"{total_result_num} results found.")
+    sum_scores = 0
+    for _, score in priority_queue.items():
+        sum_scores += score
+    for result in priority_queue:
+        priority_queue[result] = priority_queue[result] / sum_scores
+
+    # Sort the results in descending order
+    sorted_priority_queue = dict(
+        sorted(priority_queue.items(), key=lambda x: x[1], reverse=True)
+    )
+
+    return sorted_priority_queue
 
 
 @app.command()
@@ -78,7 +131,7 @@ def build():
 def load():
     index = load_json(INDEX_PATH)
     pages = load_json(PAGES_PATH)
-    page_rank(pages)
+    ranks = page_rank(pages)
     while True:
         command = typer.prompt("Enter a command (print, find, exit)")
 
@@ -88,11 +141,38 @@ def load():
             print(result)
         elif command.startswith("find"):
             query = command.replace("find", "").strip()
-            find_text(query)
+            tokens, _ = tokenize(query)
+            results = process_query(tokens, index, pages, ranks, 4)
+            print(print_search_results(query, results))
         elif command == "exit":
             break
         else:
             print("Invalid command")
+
+
+def print_search_results(query, results):
+    if len(results) == 0:
+        return f"No results for found for query '{query}'."
+    table = Table(
+        title=f"Results found for [green]'{query}'[/green]:",
+        title_justify="left",
+        box=box.SIMPLE_HEAD,
+    )
+
+    table.add_column("Rank", justify="left")
+    table.add_column("Page", justify="left", no_wrap=True)
+
+    # Results are already ordered by their rank
+    # This is a counter to number the rows
+    row_count = 0
+    for page in results.keys():
+        row_count += 1
+        if row_count == 1:
+            table.add_row(str(row_count), page, style="bright_yellow")
+        else:
+            table.add_row(str(row_count), page, style="cyan")
+
+    return table
 
 
 def print_index(word, index):
@@ -104,18 +184,20 @@ def print_index(word, index):
         title_justify="left",
         box=box.SIMPLE_HEAD,
     )
-    table.add_column("URL", justify="left", style="cyan", no_wrap=True)
-    table.add_column("Count", justify="left", style="yellow")
+    table.add_column("Page", justify="left", style="cyan", no_wrap=True)
+    table.add_column("Count", justify="left", style="white")
+    table.add_column("Location(s)", justify="left", style="yellow")
 
     for url, count in entry.items():
-        table.add_row(url, str(count))
+        table.add_row(url, str(len(count)), str(count))
 
     return table
 
 
-def find_text(query):
+def search(query):
     # Implement your search logic here
     print(f"Searching for: {query}")
+    process_query()
 
 
 @app.command()
