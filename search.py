@@ -9,6 +9,64 @@ from rich import box
 app = typer.Typer()
 
 INDEX_PATH = "./inverse_index.json"
+PAGES_PATH = "./pages.json"
+
+
+# Implementation of PageRank algorithm
+def page_rank(pages):
+    # Damping factor to account for randomness in browsing links
+    # This value can be: increased to make browsing more structured
+    #                  : decreased to make browsing more random
+    DAMPING_FACTOR = 0.85
+    # Threshold ensures that the algorithm terminates efficiently
+    CONVERGENCE_THRESHOLD = 0.000001
+
+    page_count = len(pages)
+    print(f"Total pages indexed: {page_count}")
+
+    # Rank is initially evenly distributed between all pages
+    ranks = {}
+    for page in pages:
+        ranks[page] = 1 / page_count
+
+    # Previous ranks are compared against after each iteration to check for
+    # convergence
+    previous_ranks = {}
+    converged = False
+    iteration = 0
+
+    print("Calculating global rank of each page.")
+
+    # Iterate until all page ranks have converged
+    while not converged:
+        # Store the number of iterations performed
+        iteration += 1
+        # Calculate ranks for each page
+        for key, page in pages.items():
+            incoming_links = page["incoming"]
+            new_rank = 1 - DAMPING_FACTOR
+            for link in incoming_links:
+                new_rank += DAMPING_FACTOR * ranks[link] / len(pages[link]["outgoing"])
+            previous_ranks[key] = ranks[key]
+            ranks[key] = new_rank
+
+        converged = True
+        # Check each pages' rank for convergence
+        for page, rank in ranks.items():
+            rank_diff = abs(rank - previous_ranks[page])
+            # If at least one page rank has yet to converge, continue iterating
+            if rank_diff > CONVERGENCE_THRESHOLD:
+                converged = False
+                break
+
+    print(f"Ranking algorithm converged after {iteration} iterations.")
+
+    # Normalise page ranks so they are between 0 and 1
+    sum_ranks = 0
+    for _, rank in ranks.items():
+        sum_ranks += rank
+    for key in ranks:
+        ranks[key] = ranks[key] / sum_ranks
 
 
 @app.command()
@@ -19,6 +77,8 @@ def build():
 @app.command()
 def load():
     index = load_json(INDEX_PATH)
+    pages = load_json(PAGES_PATH)
+    page_rank(pages)
     while True:
         command = typer.prompt("Enter a command (print, find, exit)")
 
